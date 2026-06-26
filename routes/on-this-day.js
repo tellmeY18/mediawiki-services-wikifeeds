@@ -1,6 +1,7 @@
 'use strict';
 
 const BBPromise = require('bluebird');
+const domino = require('domino');
 const router = require('../lib/util').router();
 const lib = require('../lib/on-this-day');
 
@@ -72,18 +73,30 @@ router.get('/all/:mm/:dd', (req, res) => {
     const lang = req.params.domain.split('.')[0];
     lib.assertLanguage(lang);
 
-    return BBPromise.all([
-        lib.fetchDocAndRevision(app, req, lib.dayTitleForRequest),
+    const docPromises = [
+        lib.fetchDocAndRevision(app, req, lib.dayTitleForRequest)
+            .catch((err) => {
+                if (err.status === 404 || (err.response && err.response.status === 404)) {
+                    return [domino.createDocument(), 0];
+                }
+                throw err;
+            }),
         lib.fetchDocAndRevision(app, req, lib.selectedTitleForRequest)
-    ])
-    .then((docsAndRevisions) => {
-        const dayDocAndRevision = docsAndRevisions[0];
-        const dayDoc = dayDocAndRevision[0];
-        const dayRevision = dayDocAndRevision[1];
+            .catch((err) => {
+                if (err.status === 404 || (err.response && err.response.status === 404)) {
+                    return [domino.createDocument(), 0];
+                }
+                throw err;
+            })
+    ];
 
-        const selectionsDocAndRevision = docsAndRevisions[1];
-        const selectionsDoc = selectionsDocAndRevision[0];
-        const selectionsRevision = selectionsDocAndRevision[1];
+    return BBPromise.all(docPromises)
+    .then((docsAndRevisions) => {
+        const dayDoc = docsAndRevisions[0][0];
+        const dayRevision = docsAndRevisions[0][1] || 0;
+
+        const selectionsDoc = docsAndRevisions[1][0];
+        const selectionsRevision = docsAndRevisions[1][1] || 0;
 
         const revision = Math.max(dayRevision, selectionsRevision);
         const output = lib.everythingInDayAndSelectionsDocs(dayDoc, selectionsDoc, lang);
